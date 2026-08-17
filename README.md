@@ -1,4 +1,3 @@
-Here’s an attractive **GitHub repository description** you can copy directly:
 
 # 🎮 Endless Tic-Tac-Toe
 
