@@ -1,0 +1,6 @@
+{
+  "name": "Endless TTT",
+  "description": "Endless Tic Tac Toe game with unique 3-piece vanishing mechanics, sets championship, smart AI, local pass & play, cross-network multi-device multiplayer, and player name customization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

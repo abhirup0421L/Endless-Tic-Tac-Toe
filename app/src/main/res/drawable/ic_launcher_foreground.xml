@@ -1,0 +1,75 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Board Background Card -->
+    <path
+        android:pathData="M30,26 h48 a6,6 0 0,1 6,6 v44 a6,6 0 0,1 -6,6 h-48 a6,6 0 0,1 -6,-6 v-44 a6,6 0 0,1 6,-6 z"
+        android:fillColor="#18181B" />
+
+    <!-- 3x3 Grid Lines inside the board -->
+    <!-- Vertical line 1 -->
+    <path
+        android:pathData="M44,30 L44,78"
+        android:strokeWidth="2.5"
+        android:strokeColor="#3F3F46"
+        android:strokeLineCap="round" />
+    <!-- Vertical line 2 -->
+    <path
+        android:pathData="M64,30 L64,78"
+        android:strokeWidth="2.5"
+        android:strokeColor="#3F3F46"
+        android:strokeLineCap="round" />
+    <!-- Horizontal line 1 -->
+    <path
+        android:pathData="M30,44 L78,44"
+        android:strokeWidth="2.5"
+        android:strokeColor="#3F3F46"
+        android:strokeLineCap="round" />
+    <!-- Horizontal line 2 -->
+    <path
+        android:pathData="M30,64 L78,64"
+        android:strokeWidth="2.5"
+        android:strokeColor="#3F3F46"
+        android:strokeLineCap="round" />
+
+    <!-- Top-Left X (Blue) -->
+    <path
+        android:pathData="M32,32 L42,42 M42,32 L32,42"
+        android:strokeWidth="3.2"
+        android:strokeColor="#2563EB"
+        android:strokeLineCap="round" />
+
+    <!-- Center O (Red) -->
+    <path
+        android:pathData="M54,48 a6,6 0 1,0 0.001,0"
+        android:strokeWidth="3.2"
+        android:strokeColor="#DC2626"
+        android:strokeLineCap="round" />
+
+    <!-- Bottom-Right X (Blue) -->
+    <path
+        android:pathData="M66,66 L76,76 M76,66 L66,76"
+        android:strokeWidth="3.2"
+        android:strokeColor="#2563EB"
+        android:strokeLineCap="round" />
+
+    <!-- Top-Right O (Red - Fading preview) -->
+    <path
+        android:pathData="M71,34 a4.5,4.5 0 1,0 0.001,0"
+        android:strokeWidth="2"
+        android:strokeColor="#80EF4444"
+        android:strokeLineCap="round" />
+
+    <!-- Infinity Badge at bottom-left -->
+    <path
+        android:pathData="M34,71 C32,69 29,69 28,71 C27,72.5 28,74.5 30,74.5 C32,74.5 34,71 36,71 C38,71 40,73 39,74.5 C38,76 35,74.5 34,71 Z"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FACC15"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round" />
+
+</vector>
+
