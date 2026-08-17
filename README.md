@@ -70,7 +70,8 @@ This project was created to explore the development of a complete multiplayer An
 
 ## 📸 Screenshots
 
-*Add screenshots or gameplay GIFs here to showcase the application.*
+<img width="309" height="655" alt="image" src="https://github.com/user-attachments/assets/7f87089d-df9d-451a-8f25-bf6b5f0bcb1a" />
+
 
 ## 🔮 Future Improvements
 
