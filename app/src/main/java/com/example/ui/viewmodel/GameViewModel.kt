@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
 import com.example.data.db.GameRecord
+import com.example.data.network.RoomStatePayload
 import com.example.data.network.WebSocketGameRelay
 import com.example.data.repository.GameRepository
 import com.example.domain.ai.EndlessAiEngine
@@ -15,9 +16,13 @@ import com.example.domain.model.GameMode
 import com.example.domain.model.LocalPlayerRole
 import com.example.domain.model.MatchStats
 import com.example.domain.model.NetworkConnectionStatus
+import com.example.domain.model.PendingJoinUser
+import com.example.domain.model.PlayerCount
 import com.example.domain.model.PlayerSymbol
 import com.example.domain.model.TargetSets
 import com.example.domain.model.WinningLine
+import com.example.ui.sound.SoundEffect
+import com.example.ui.sound.SoundManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +34,7 @@ import kotlin.random.Random
 
 enum class AppScreen {
     SPLASH,
+    ONBOARDING,
     HOME,
     GAME
 }
@@ -47,20 +53,26 @@ data class GameUiState(
     // Profile & Settings
     val customPlayerName: String = "Player 1",
     val customRelayUrl: String = "",
+    val isSoundEnabled: Boolean = true,
 
     // Match Config
     val gameMode: GameMode = GameMode.SINGLE_PLAYER,
+    val playerCount: PlayerCount = PlayerCount.TWO,
     val aiDifficulty: AiDifficulty = AiDifficulty.MEDIUM,
     val targetSets: TargetSets = TargetSets.FIVE,
     val player1Name: String = "Player 1",
     val player2Name: String = "AI Opponent",
+    val player3Name: String = "Player 3",
+    val player4Name: String = "Player 4",
 
     // Online Multiplayer State
-    val localPlayerRole: LocalPlayerRole = LocalPlayerRole.LOCAL_BOTH,
+    val localPlayerRole: LocalPlayerRole = LocalPlayerRole.LOCAL_ALL,
     val networkStatus: NetworkConnectionStatus = NetworkConnectionStatus.IDLE,
     val currentRoomCode: String = "",
     val isOnlineHost: Boolean = false,
     val onlineOpponentName: String = "",
+    val connectedPlayers: List<String> = emptyList(), // Names of all players currently in room
+    val pendingJoinRequests: List<PendingJoinUser> = emptyList(), // Players requesting to join host room (3/4P)
     val onlineErrorMessage: String? = null,
     val showOnlineLobbyDialog: Boolean = false,
     val showOpponentLeftDialog: Boolean = false,
@@ -70,6 +82,8 @@ data class GameUiState(
     val currentTurn: PlayerSymbol = PlayerSymbol.X,
     val player1Pieces: List<BoardPosition> = emptyList(), // Size <= 3, FIFO
     val player2Pieces: List<BoardPosition> = emptyList(), // Size <= 3, FIFO
+    val player3Pieces: List<BoardPosition> = emptyList(), // Size <= 3, FIFO
+    val player4Pieces: List<BoardPosition> = emptyList(), // Size <= 3, FIFO
     val matchStats: MatchStats = MatchStats(),
     val roundStatus: RoundStatus = RoundStatus.PLAYING,
     val winningLine: WinningLine? = null,
@@ -88,6 +102,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: GameRepository
     private val relay: WebSocketGameRelay = WebSocketGameRelay()
+    private val soundManager: SoundManager = SoundManager.getInstance(application)
 
     val singlePlayerRecords: StateFlow<List<GameRecord>>
     val friendRecords: StateFlow<List<GameRecord>>
@@ -123,55 +138,46 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             customPlayerName = savedName,
             customRelayUrl = savedRelay,
-            player1Name = savedName
+            player1Name = savedName,
+            isSoundEnabled = soundManager.isSoundEnabled.value
         )
+
+        // Observe Sound setting changes
+        viewModelScope.launch {
+            soundManager.isSoundEnabled.collect { enabled ->
+                _uiState.value = _uiState.value.copy(isSoundEnabled = enabled)
+            }
+        }
 
         setupRelayListeners()
         startSplashLoading()
     }
 
     private fun setupRelayListeners() {
-        relay.onOpponentConnected = { oppName, oppTargetSets ->
+        relay.onRoomStateUpdated = { roomState ->
             viewModelScope.launch {
-                val isHost = relay.isHost.value
-                val setsEnum = when (oppTargetSets) {
-                    10 -> TargetSets.TEN
-                    15 -> TargetSets.FIFTEEN
-                    else -> _uiState.value.targetSets
+                handleRoomStateUpdate(roomState)
+            }
+        }
+
+        relay.onJoinRequestReceived = { guestId, guestName ->
+            viewModelScope.launch {
+                val current = _uiState.value.pendingJoinRequests.toMutableList()
+                if (current.none { it.id == guestId }) {
+                    current.add(PendingJoinUser(guestId, guestName))
+                    _uiState.value = _uiState.value.copy(pendingJoinRequests = current)
+                    soundManager.playSound(SoundEffect.BUTTON_CLICK)
                 }
+            }
+        }
 
-                val p1 = if (isHost) _uiState.value.customPlayerName else oppName
-                val p2 = if (isHost) oppName else _uiState.value.customPlayerName
-
-                _uiState.value = _uiState.value.copy(
-                    currentScreen = AppScreen.GAME,
-                    gameMode = GameMode.ONLINE_MULTIPLAYER,
-                    localPlayerRole = if (isHost) LocalPlayerRole.HOST_X else LocalPlayerRole.GUEST_O,
-                    networkStatus = NetworkConnectionStatus.CONNECTED,
-                    onlineOpponentName = oppName,
-                    targetSets = setsEnum,
-                    player1Name = p1,
-                    player2Name = p2,
-                    currentTurn = PlayerSymbol.X,
-                    player1Pieces = emptyList(),
-                    player2Pieces = emptyList(),
-                    activeReactions = emptyList(),
-                    matchStats = MatchStats(
-                        player1Wins = 0,
-                        player2Wins = 0,
-                        currentRound = 1,
-                        targetSets = setsEnum.count
-                    ),
-                    roundStatus = RoundStatus.PLAYING,
-                    winningLine = null,
-                    matchWinner = null,
-                    isAiThinking = false,
-                    showOnlineLobbyDialog = false,
-                    showModeSelectDialog = false,
-                    showPauseDialog = false,
-                    showVictoryDialog = false,
-                    showOpponentLeftDialog = false
-                )
+        relay.onMatchStarted = { roomState ->
+            viewModelScope.launch {
+                val state = _uiState.value
+                if (state.currentScreen == AppScreen.GAME && state.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+                    return@launch
+                }
+                handleMatchStarted(roomState)
             }
         }
 
@@ -182,19 +188,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (state.roundStatus != RoundStatus.PLAYING) return@launch
 
                 val clickedPos = BoardPosition(row, col)
-                if (symbol == PlayerSymbol.X) {
-                    val updatedP1Pieces = EndlessAiEngine.simulateMove(state.player1Pieces, clickedPos)
-                    processMoveResult(PlayerSymbol.X, updatedP1Pieces, state.player2Pieces, isNetworkMove = true)
-                } else {
-                    val updatedP2Pieces = EndlessAiEngine.simulateMove(state.player2Pieces, clickedPos)
-                    processMoveResult(PlayerSymbol.O, state.player1Pieces, updatedP2Pieces, isNetworkMove = true)
-                }
+                val currentPieces = state.getPiecesForSymbol(symbol)
+                val willVanish = currentPieces.size == 3
+                val updatedPieces = EndlessAiEngine.simulateMove(currentPieces, clickedPos)
+                playPieceSound(symbol, willVanish)
+                processMoveResult(symbol, updatedPieces, isNetworkMove = true)
             }
         }
 
-        relay.onReactionReceived = { emoji, senderName ->
+        relay.onReactionReceived = { emoji, senderName, symbol ->
             viewModelScope.launch {
-                displayReaction(emoji = emoji, senderName = senderName, isLocal = false)
+                displayReaction(emoji = emoji, senderName = senderName, isLocal = false, symbol = symbol)
             }
         }
 
@@ -210,10 +214,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = state.copy(
                     player1Pieces = emptyList(),
                     player2Pieces = emptyList(),
+                    player3Pieces = emptyList(),
+                    player4Pieces = emptyList(),
                     currentTurn = PlayerSymbol.X,
                     matchStats = MatchStats(
                         player1Wins = 0,
                         player2Wins = 0,
+                        player3Wins = 0,
+                        player4Wins = 0,
                         currentRound = 1,
                         targetSets = state.targetSets.count
                     ),
@@ -225,7 +233,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        relay.onOpponentDisconnected = {
+        relay.onPlayerLeft = { _ ->
             viewModelScope.launch {
                 if (_uiState.value.gameMode == GameMode.ONLINE_MULTIPLAYER && _uiState.value.currentScreen == AppScreen.GAME) {
                     _uiState.value = _uiState.value.copy(
@@ -236,56 +244,163 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        relay.onErrorOccurred = { error ->
+        relay.onErrorOccurred = { errorMsg ->
             viewModelScope.launch {
                 _uiState.value = _uiState.value.copy(
-                    networkStatus = NetworkConnectionStatus.ERROR,
-                    onlineErrorMessage = error
+                    onlineErrorMessage = errorMsg,
+                    networkStatus = NetworkConnectionStatus.ERROR
                 )
             }
         }
     }
 
+    private fun handleRoomStateUpdate(roomState: RoomStatePayload) {
+        val isHost = relay.isHost.value
+        val setsEnum = TargetSets.entries.find { it.count == roomState.targetSets } ?: TargetSets.FIVE
+
+        val myPlayer = roomState.players.find { it.id == relay.clientId }
+        val myRole = when (myPlayer?.symbol) {
+            PlayerSymbol.X -> LocalPlayerRole.HOST_X
+            PlayerSymbol.O -> LocalPlayerRole.GUEST_O
+            PlayerSymbol.TICK -> LocalPlayerRole.GUEST_TICK
+            PlayerSymbol.TRIANGLE -> LocalPlayerRole.GUEST_TRIANGLE
+            null -> if (isHost) LocalPlayerRole.HOST_X else LocalPlayerRole.GUEST_O
+        }
+
+        val p1 = roomState.players.getOrNull(0)?.name ?: "Player 1"
+        val p2 = roomState.players.getOrNull(1)?.name ?: "Player 2"
+        val p3 = roomState.players.getOrNull(2)?.name ?: "Player 3"
+        val p4 = roomState.players.getOrNull(3)?.name ?: "Player 4"
+
+        val connectedNames = roomState.players.map { "${it.name} (${it.symbol.displayName})" }
+
+        // Remove any pending join requests for players that are now admitted
+        val remainingPending = _uiState.value.pendingJoinRequests.filterNot { req ->
+            roomState.players.any { it.id == req.id }
+        }
+
+        _uiState.value = _uiState.value.copy(
+            playerCount = roomState.playerCount,
+            targetSets = setsEnum,
+            localPlayerRole = myRole,
+            connectedPlayers = connectedNames,
+            pendingJoinRequests = remainingPending,
+            player1Name = p1,
+            player2Name = p2,
+            player3Name = p3,
+            player4Name = p4,
+            networkStatus = if (myPlayer != null || isHost) NetworkConnectionStatus.CONNECTED else NetworkConnectionStatus.CONNECTING
+        )
+    }
+
+    private fun handleMatchStarted(roomState: RoomStatePayload) {
+        val isHost = relay.isHost.value
+        val setsEnum = TargetSets.entries.find { it.count == roomState.targetSets } ?: TargetSets.FIVE
+
+        val myPlayer = roomState.players.find { it.id == relay.clientId }
+        val myRole = when (myPlayer?.symbol) {
+            PlayerSymbol.X -> LocalPlayerRole.HOST_X
+            PlayerSymbol.O -> LocalPlayerRole.GUEST_O
+            PlayerSymbol.TICK -> LocalPlayerRole.GUEST_TICK
+            PlayerSymbol.TRIANGLE -> LocalPlayerRole.GUEST_TRIANGLE
+            null -> if (isHost) LocalPlayerRole.HOST_X else LocalPlayerRole.GUEST_O
+        }
+
+        val p1 = roomState.players.getOrNull(0)?.name ?: "Player 1"
+        val p2 = roomState.players.getOrNull(1)?.name ?: "Player 2"
+        val p3 = roomState.players.getOrNull(2)?.name ?: "Player 3"
+        val p4 = roomState.players.getOrNull(3)?.name ?: "Player 4"
+
+        _uiState.value = _uiState.value.copy(
+            currentScreen = AppScreen.GAME,
+            gameMode = GameMode.ONLINE_MULTIPLAYER,
+            playerCount = roomState.playerCount,
+            targetSets = setsEnum,
+            localPlayerRole = myRole,
+            networkStatus = NetworkConnectionStatus.CONNECTED,
+            player1Name = p1,
+            player2Name = p2,
+            player3Name = p3,
+            player4Name = p4,
+            currentTurn = PlayerSymbol.X,
+            player1Pieces = emptyList(),
+            player2Pieces = emptyList(),
+            player3Pieces = emptyList(),
+            player4Pieces = emptyList(),
+            activeReactions = emptyList(),
+            matchStats = MatchStats(
+                player1Wins = 0,
+                player2Wins = 0,
+                player3Wins = 0,
+                player4Wins = 0,
+                currentRound = 1,
+                targetSets = setsEnum.count
+            ),
+            roundStatus = RoundStatus.PLAYING,
+            winningLine = null,
+            matchWinner = null,
+            isAiThinking = false,
+            showOnlineLobbyDialog = false,
+            showModeSelectDialog = false,
+            showPauseDialog = false,
+            showVictoryDialog = false,
+            showOpponentLeftDialog = false
+        )
+    }
+
     private fun startSplashLoading() {
         viewModelScope.launch {
-            for (step in 1..100) {
-                delay(18)
-                _uiState.value = _uiState.value.copy(splashProgress = step / 100f)
+            val totalSteps = 25
+            for (i in 1..totalSteps) {
+                delay(30)
+                _uiState.value = _uiState.value.copy(
+                    splashProgress = i / totalSteps.toFloat()
+                )
             }
-            delay(200)
+            delay(150)
             _uiState.value = _uiState.value.copy(
-                currentScreen = AppScreen.HOME,
-                isSplashLoading = false
+                isSplashLoading = false,
+                currentScreen = AppScreen.HOME
             )
         }
     }
 
     fun setPlayerName(name: String) {
-        val trimmed = name.trim().ifEmpty { "Player 1" }
-        viewModelScope.launch {
-            repository.setPlayerName(trimmed)
+        val trimmed = name.trim().take(16)
+        if (trimmed.isNotBlank()) {
             _uiState.value = _uiState.value.copy(
                 customPlayerName = trimmed,
                 player1Name = trimmed
             )
+            viewModelScope.launch {
+                repository.setPlayerName(trimmed)
+            }
         }
     }
 
     fun setCustomRelayUrl(url: String) {
         val trimmed = url.trim()
+        _uiState.value = _uiState.value.copy(customRelayUrl = trimmed)
         viewModelScope.launch {
             repository.setCustomRelayUrl(trimmed)
-            _uiState.value = _uiState.value.copy(customRelayUrl = trimmed)
         }
     }
 
+    fun setSoundEnabled(enabled: Boolean) {
+        soundManager.setSoundEnabled(enabled)
+    }
+
     fun openModeSelect(mode: GameMode) {
+        soundManager.playSound(SoundEffect.BUTTON_CLICK)
         if (mode == GameMode.ONLINE_MULTIPLAYER) {
-            val randomCode = generateRoomCode()
+            val code = generateRoomCode()
             _uiState.value = _uiState.value.copy(
-                currentRoomCode = randomCode,
+                selectedModeForDialog = mode,
+                currentRoomCode = code,
                 showOnlineLobbyDialog = true,
                 onlineErrorMessage = null,
+                connectedPlayers = emptyList(),
+                pendingJoinRequests = emptyList(),
                 networkStatus = NetworkConnectionStatus.IDLE
             )
         } else {
@@ -296,47 +411,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun closeModeSelect() {
+    fun dismissModeSelect() {
         _uiState.value = _uiState.value.copy(showModeSelectDialog = false)
     }
 
-    fun openSettings() {
-        _uiState.value = _uiState.value.copy(showSettingsDialog = true)
-    }
-
-    fun closeSettings() {
-        _uiState.value = _uiState.value.copy(showSettingsDialog = false)
-    }
-
-    fun openPauseDialog() {
-        _uiState.value = _uiState.value.copy(showPauseDialog = true)
-    }
-
-    fun closePauseDialog() {
-        _uiState.value = _uiState.value.copy(showPauseDialog = false)
-    }
-
-    fun closeOpponentLeftDialog() {
+    fun openOnlineLobby() {
+        val code = generateRoomCode()
         _uiState.value = _uiState.value.copy(
-            showOpponentLeftDialog = false,
-            currentScreen = AppScreen.HOME
+            showOnlineLobbyDialog = true,
+            currentRoomCode = code,
+            onlineErrorMessage = null,
+            connectedPlayers = emptyList(),
+            pendingJoinRequests = emptyList(),
+            networkStatus = NetworkConnectionStatus.IDLE
         )
     }
 
-    fun closeOnlineLobby() {
+    fun dismissOnlineLobby() {
+        if (_uiState.value.networkStatus != NetworkConnectionStatus.CONNECTING &&
+            _uiState.value.networkStatus != NetworkConnectionStatus.WAITING_FOR_OPPONENT) {
+            _uiState.value = _uiState.value.copy(showOnlineLobbyDialog = false)
+        }
+    }
+
+    fun cancelConnectingOnline() {
         relay.disconnect()
         _uiState.value = _uiState.value.copy(
+            networkStatus = NetworkConnectionStatus.IDLE,
             showOnlineLobbyDialog = false,
-            networkStatus = NetworkConnectionStatus.IDLE,
-            onlineErrorMessage = null
-        )
-    }
-
-    fun cancelOnlineConnecting() {
-        relay.disconnect()
-        _uiState.value = _uiState.value.copy(
-            networkStatus = NetworkConnectionStatus.IDLE,
-            onlineErrorMessage = null
+            pendingJoinRequests = emptyList(),
+            connectedPlayers = emptyList()
         )
     }
 
@@ -347,21 +451,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             .joinToString("")
     }
 
-    fun createOnlineRoom(roomCode: String, targetSets: TargetSets) {
+    fun createOnlineRoom(roomCode: String, playerCount: PlayerCount = PlayerCount.TWO, targetSets: TargetSets = TargetSets.FIVE) {
         val hostName = _uiState.value.customPlayerName.ifBlank { "Host" }
         _uiState.value = _uiState.value.copy(
             currentRoomCode = roomCode,
             isOnlineHost = true,
+            playerCount = playerCount,
             targetSets = targetSets,
-            networkStatus = NetworkConnectionStatus.CONNECTING,
-            onlineErrorMessage = null
+            networkStatus = NetworkConnectionStatus.WAITING_FOR_OPPONENT,
+            onlineErrorMessage = null,
+            connectedPlayers = listOf("$hostName (X)"),
+            pendingJoinRequests = emptyList()
         )
         relay.createRoom(
             roomId = roomCode,
             hostName = hostName,
+            playerCount = playerCount,
             targetSets = targetSets.count,
             customServerUrl = _uiState.value.customRelayUrl
         )
+    }
+
+    fun acceptPlayerRequest(guestId: String, guestName: String) {
+        val currentPending = _uiState.value.pendingJoinRequests.filterNot { it.id == guestId }
+        _uiState.value = _uiState.value.copy(pendingJoinRequests = currentPending)
+        soundManager.playSound(SoundEffect.BUTTON_CLICK)
+        relay.hostAcceptPlayer(guestId, guestName)
+    }
+
+    fun rejectPlayerRequest(guestId: String) {
+        val currentPending = _uiState.value.pendingJoinRequests.filterNot { it.id == guestId }
+        _uiState.value = _uiState.value.copy(pendingJoinRequests = currentPending)
+        soundManager.playSound(SoundEffect.BUTTON_CLICK)
+    }
+
+    fun hostStartMatchNow() {
+        soundManager.playSound(SoundEffect.BUTTON_CLICK)
+        relay.hostStartMatchNow()
     }
 
     fun joinOnlineRoom(roomCode: String) {
@@ -370,7 +496,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             currentRoomCode = roomCode,
             isOnlineHost = false,
             networkStatus = NetworkConnectionStatus.CONNECTING,
-            onlineErrorMessage = null
+            onlineErrorMessage = null,
+            connectedPlayers = emptyList(),
+            pendingJoinRequests = emptyList()
         )
         relay.joinRoom(
             roomId = roomCode,
@@ -384,59 +512,83 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun sendReaction(emoji: String) {
         if (_uiState.value.gameMode != GameMode.ONLINE_MULTIPLAYER) return
         val now = System.currentTimeMillis()
-        if (now - lastReactionSentTimestamp < 3000L) {
-            // Anti-spam cooldown active (3 seconds)
+        if (now - lastReactionSentTimestamp < 2500L) {
+            // Cooldown active
             return
         }
         lastReactionSentTimestamp = now
-        relay.sendReaction(emoji)
-        displayReaction(emoji = emoji, senderName = _uiState.value.customPlayerName, isLocal = true)
+        val mySymbol = when (_uiState.value.localPlayerRole) {
+            LocalPlayerRole.HOST_X -> PlayerSymbol.X
+            LocalPlayerRole.GUEST_O -> PlayerSymbol.O
+            LocalPlayerRole.GUEST_TICK -> PlayerSymbol.TICK
+            LocalPlayerRole.GUEST_TRIANGLE -> PlayerSymbol.TRIANGLE
+            LocalPlayerRole.LOCAL_ALL -> _uiState.value.currentTurn
+        }
+        relay.sendReaction(emoji, mySymbol)
+        displayReaction(emoji = emoji, senderName = _uiState.value.customPlayerName, isLocal = true, symbol = mySymbol)
     }
 
-    private fun displayReaction(emoji: String, senderName: String, isLocal: Boolean) {
+    private fun displayReaction(emoji: String, senderName: String, isLocal: Boolean, symbol: PlayerSymbol = PlayerSymbol.X) {
+        soundManager.playSound(SoundEffect.REACTION_POP)
         val reaction = ActiveReaction(
             emoji = emoji,
             senderName = senderName,
-            isLocal = isLocal
+            isLocal = isLocal,
+            playerSymbol = symbol
         )
-        // Keep active list clean by keeping only latest reaction per sender side
-        val filtered = _uiState.value.activeReactions.filterNot { it.isLocal == isLocal }
+        val filtered = _uiState.value.activeReactions.filterNot { it.playerSymbol == symbol }
         _uiState.value = _uiState.value.copy(
             activeReactions = filtered + reaction
         )
 
-        // Auto remove reaction after 5 seconds
         viewModelScope.launch {
-            delay(5000)
+            delay(4000)
             _uiState.value = _uiState.value.copy(
                 activeReactions = _uiState.value.activeReactions.filterNot { it.id == reaction.id }
             )
         }
     }
 
-    fun startMatch(mode: GameMode, difficulty: AiDifficulty, targetSets: TargetSets) {
+    fun startMatch(mode: GameMode, playerCount: PlayerCount, difficulty: AiDifficulty, targetSets: TargetSets) {
         val p1Name = _uiState.value.customPlayerName
         val p2Name = when (mode) {
-            GameMode.SINGLE_PLAYER -> "AI (${difficulty.title})"
-            GameMode.FRIEND -> "Friend"
-            GameMode.ONLINE_MULTIPLAYER -> "Online Player"
+            GameMode.SINGLE_PLAYER -> "AI 1 (${difficulty.title})"
+            GameMode.FRIEND -> "Player O"
+            GameMode.ONLINE_MULTIPLAYER -> "Online Player O"
+        }
+        val p3Name = when (mode) {
+            GameMode.SINGLE_PLAYER -> "AI 2 (${difficulty.title})"
+            GameMode.FRIEND -> "Player ✓"
+            GameMode.ONLINE_MULTIPLAYER -> "Online Player ✓"
+        }
+        val p4Name = when (mode) {
+            GameMode.SINGLE_PLAYER -> "AI 3 (${difficulty.title})"
+            GameMode.FRIEND -> "Player ▲"
+            GameMode.ONLINE_MULTIPLAYER -> "Online Player ▲"
         }
 
         _uiState.value = _uiState.value.copy(
             currentScreen = AppScreen.GAME,
             gameMode = mode,
+            playerCount = playerCount,
             aiDifficulty = difficulty,
             targetSets = targetSets,
             player1Name = p1Name,
             player2Name = p2Name,
-            localPlayerRole = LocalPlayerRole.LOCAL_BOTH,
+            player3Name = p3Name,
+            player4Name = p4Name,
+            localPlayerRole = LocalPlayerRole.LOCAL_ALL,
             currentTurn = PlayerSymbol.X,
             player1Pieces = emptyList(),
             player2Pieces = emptyList(),
+            player3Pieces = emptyList(),
+            player4Pieces = emptyList(),
             activeReactions = emptyList(),
             matchStats = MatchStats(
                 player1Wins = 0,
                 player2Wins = 0,
+                player3Wins = 0,
+                player4Wins = 0,
                 currentRound = 1,
                 targetSets = targetSets.count
             ),
@@ -445,10 +597,56 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             matchWinner = null,
             isAiThinking = false,
             showModeSelectDialog = false,
+            showOnlineLobbyDialog = false,
             showPauseDialog = false,
             showVictoryDialog = false,
             showOpponentLeftDialog = false
         )
+    }
+
+    fun openSettings() {
+        soundManager.playSound(SoundEffect.BUTTON_CLICK)
+        _uiState.value = _uiState.value.copy(showSettingsDialog = true)
+    }
+
+    fun dismissSettings() {
+        _uiState.value = _uiState.value.copy(showSettingsDialog = false)
+    }
+
+    fun openPauseDialog() {
+        soundManager.playSound(SoundEffect.BUTTON_CLICK)
+        _uiState.value = _uiState.value.copy(showPauseDialog = true)
+    }
+
+    fun dismissPauseDialog() {
+        _uiState.value = _uiState.value.copy(showPauseDialog = false)
+    }
+
+    fun dismissVictoryDialog() {
+        _uiState.value = _uiState.value.copy(showVictoryDialog = false)
+    }
+
+    fun dismissOpponentLeftDialog() {
+        _uiState.value = _uiState.value.copy(showOpponentLeftDialog = false)
+        exitToHome()
+    }
+
+    fun GameUiState.getPiecesForSymbol(symbol: PlayerSymbol): List<BoardPosition> {
+        return when (symbol) {
+            PlayerSymbol.X -> player1Pieces
+            PlayerSymbol.O -> player2Pieces
+            PlayerSymbol.TICK -> player3Pieces
+            PlayerSymbol.TRIANGLE -> player4Pieces
+        }
+    }
+
+    private fun GameUiState.withUpdatedPieces(symbol: PlayerSymbol, pieces: List<BoardPosition>): GameUiState {
+        return when (symbol) {
+            PlayerSymbol.X -> copy(player1Pieces = pieces)
+            PlayerSymbol.O -> copy(player2Pieces = pieces)
+            PlayerSymbol.TICK -> copy(player3Pieces = pieces)
+            PlayerSymbol.TRIANGLE -> copy(player4Pieces = pieces)
+        }
     }
 
     fun onCellClicked(row: Int, col: Int) {
@@ -458,115 +656,141 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         val clickedPos = BoardPosition(row, col)
 
-        if (state.player1Pieces.contains(clickedPos) || state.player2Pieces.contains(clickedPos)) {
+        val allOccupied = state.player1Pieces + state.player2Pieces + state.player3Pieces + state.player4Pieces
+        if (allOccupied.contains(clickedPos)) {
             return
         }
 
         // Check if user has right to move in Online mode
         if (state.gameMode == GameMode.ONLINE_MULTIPLAYER) {
-            val isMyTurn = (state.localPlayerRole == LocalPlayerRole.HOST_X && state.currentTurn == PlayerSymbol.X) ||
-                    (state.localPlayerRole == LocalPlayerRole.GUEST_O && state.currentTurn == PlayerSymbol.O)
+            val isMyTurn = when (state.localPlayerRole) {
+                LocalPlayerRole.HOST_X -> state.currentTurn == PlayerSymbol.X
+                LocalPlayerRole.GUEST_O -> state.currentTurn == PlayerSymbol.O
+                LocalPlayerRole.GUEST_TICK -> state.currentTurn == PlayerSymbol.TICK
+                LocalPlayerRole.GUEST_TRIANGLE -> state.currentTurn == PlayerSymbol.TRIANGLE
+                LocalPlayerRole.LOCAL_ALL -> true
+            }
             if (!isMyTurn) return
         }
 
-        if (state.currentTurn == PlayerSymbol.X) {
-            val updatedP1Pieces = EndlessAiEngine.simulateMove(state.player1Pieces, clickedPos)
-            processMoveResult(PlayerSymbol.X, updatedP1Pieces, state.player2Pieces, isNetworkMove = false)
+        val turn = state.currentTurn
+        val currentPieces = state.getPiecesForSymbol(turn)
+        val willVanish = currentPieces.size == 3
+        val updatedPieces = EndlessAiEngine.simulateMove(currentPieces, clickedPos)
+        playPieceSound(turn, willVanish)
 
-            if (state.gameMode == GameMode.ONLINE_MULTIPLAYER) {
-                relay.sendMove(row, col, PlayerSymbol.X)
-            }
+        processMoveResult(turn, updatedPieces, isNetworkMove = false)
+
+        if (state.gameMode == GameMode.ONLINE_MULTIPLAYER) {
+            relay.sendMove(row, col, turn)
+        }
+    }
+
+    private fun playPieceSound(symbol: PlayerSymbol, willVanish: Boolean) {
+        if (willVanish) {
+            soundManager.playSound(SoundEffect.PIECE_VANISH)
         } else {
-            val updatedP2Pieces = EndlessAiEngine.simulateMove(state.player2Pieces, clickedPos)
-            processMoveResult(PlayerSymbol.O, state.player1Pieces, updatedP2Pieces, isNetworkMove = false)
-
-            if (state.gameMode == GameMode.ONLINE_MULTIPLAYER) {
-                relay.sendMove(row, col, PlayerSymbol.O)
+            when (symbol) {
+                PlayerSymbol.X -> soundManager.playSound(SoundEffect.PIECE_PLACE_X)
+                PlayerSymbol.O -> soundManager.playSound(SoundEffect.PIECE_PLACE_O)
+                PlayerSymbol.TICK -> soundManager.playSound(SoundEffect.PIECE_PLACE_X)
+                PlayerSymbol.TRIANGLE -> soundManager.playSound(SoundEffect.PIECE_PLACE_O)
             }
         }
     }
 
+    private fun getNextTurnSymbol(current: PlayerSymbol, count: PlayerCount): PlayerSymbol {
+        val symbols = count.symbols
+        val idx = symbols.indexOf(current)
+        return if (idx >= 0 && idx < symbols.size - 1) symbols[idx + 1] else symbols[0]
+    }
+
     private fun processMoveResult(
         movedPlayer: PlayerSymbol,
-        newP1Pieces: List<BoardPosition>,
-        newP2Pieces: List<BoardPosition>,
+        newPieces: List<BoardPosition>,
         isNetworkMove: Boolean = false
     ) {
-        val winningPos = EndlessAiEngine.checkWin(if (movedPlayer == PlayerSymbol.X) newP1Pieces else newP2Pieces)
+        val state = _uiState.value
+        val updatedState = state.withUpdatedPieces(movedPlayer, newPieces)
+        val winningPos = EndlessAiEngine.checkWin(newPieces, state.playerCount.gridSize)
 
         if (winningPos != null) {
-            handlePointScored(movedPlayer, winningPos, newP1Pieces, newP2Pieces)
+            _uiState.value = updatedState
+            handlePointScored(movedPlayer, winningPos)
         } else {
-            val nextPlayer = if (movedPlayer == PlayerSymbol.X) PlayerSymbol.O else PlayerSymbol.X
-            val isAiNext = (_uiState.value.gameMode == GameMode.SINGLE_PLAYER && nextPlayer == PlayerSymbol.O)
+            val nextPlayer = getNextTurnSymbol(movedPlayer, state.playerCount)
+            val isAiNext = (state.gameMode == GameMode.SINGLE_PLAYER && nextPlayer != PlayerSymbol.X)
 
-            _uiState.value = _uiState.value.copy(
-                player1Pieces = newP1Pieces,
-                player2Pieces = newP2Pieces,
+            _uiState.value = updatedState.copy(
                 currentTurn = nextPlayer,
                 isAiThinking = isAiNext
             )
 
             if (isAiNext) {
-                triggerAiMove(newP1Pieces, newP2Pieces)
+                triggerAiMove(nextPlayer)
             }
         }
     }
 
-    private fun triggerAiMove(humanPieces: List<BoardPosition>, aiPieces: List<BoardPosition>) {
+    private fun triggerAiMove(aiSymbol: PlayerSymbol) {
         viewModelScope.launch {
             delay(500)
             val state = _uiState.value
             if (state.roundStatus != RoundStatus.PLAYING) return@launch
 
+            val aiPieces = state.getPiecesForSymbol(aiSymbol)
+            val otherPieces = state.playerCount.symbols
+                .filter { it != aiSymbol }
+                .map { state.getPiecesForSymbol(it) }
+
             val bestMove = EndlessAiEngine.getBestMove(
                 difficulty = state.aiDifficulty,
                 aiPieces = aiPieces,
-                humanPieces = humanPieces
+                otherPlayersPieces = otherPieces,
+                gridSize = state.playerCount.gridSize
             )
 
+            val willVanish = aiPieces.size == 3
             val updatedAiPieces = EndlessAiEngine.simulateMove(aiPieces, bestMove)
-            processMoveResult(PlayerSymbol.O, humanPieces, updatedAiPieces)
+            playPieceSound(aiSymbol, willVanish)
+            processMoveResult(aiSymbol, updatedAiPieces)
         }
     }
 
     private fun handlePointScored(
         winner: PlayerSymbol,
-        winningPositions: List<BoardPosition>,
-        finalP1Pieces: List<BoardPosition>,
-        finalP2Pieces: List<BoardPosition>
+        winningPositions: List<BoardPosition>
     ) {
-        val currentStats = _uiState.value.matchStats
-        val newP1Wins = if (winner == PlayerSymbol.X) currentStats.player1Wins + 1 else currentStats.player1Wins
-        val newP2Wins = if (winner == PlayerSymbol.O) currentStats.player2Wins + 1 else currentStats.player2Wins
+        val state = _uiState.value
+        val currentStats = state.matchStats
+        val updatedStats = when (winner) {
+            PlayerSymbol.X -> currentStats.copy(player1Wins = currentStats.player1Wins + 1)
+            PlayerSymbol.O -> currentStats.copy(player2Wins = currentStats.player2Wins + 1)
+            PlayerSymbol.TICK -> currentStats.copy(player3Wins = currentStats.player3Wins + 1)
+            PlayerSymbol.TRIANGLE -> currentStats.copy(player4Wins = currentStats.player4Wins + 1)
+        }
 
-        val targetSets = _uiState.value.targetSets.count
-        val isMatchWon = newP1Wins >= targetSets || newP2Wins >= targetSets
-
+        val targetSets = state.targetSets.count
+        val winnerScore = updatedStats.getWins(winner)
+        val isMatchWon = winnerScore >= targetSets
         val winningLine = WinningLine(winningPositions, winner)
 
         if (isMatchWon) {
-            val matchWinner = if (newP1Wins >= targetSets) PlayerSymbol.X else PlayerSymbol.O
-            _uiState.value = _uiState.value.copy(
-                player1Pieces = finalP1Pieces,
-                player2Pieces = finalP2Pieces,
-                matchStats = currentStats.copy(player1Wins = newP1Wins, player2Wins = newP2Wins),
+            soundManager.playSound(SoundEffect.VICTORY_FANFARE)
+            _uiState.value = state.copy(
+                matchStats = updatedStats,
                 roundStatus = RoundStatus.MATCH_OVER,
                 winningLine = winningLine,
-                matchWinner = matchWinner,
+                matchWinner = winner,
                 showVictoryDialog = true,
                 isAiThinking = false
             )
 
-            saveGameRecord(newP1Wins, newP2Wins, matchWinner)
+            saveGameRecord(updatedStats, winner)
         } else {
-            _uiState.value = _uiState.value.copy(
-                player1Pieces = finalP1Pieces,
-                player2Pieces = finalP2Pieces,
-                matchStats = currentStats.copy(
-                    player1Wins = newP1Wins,
-                    player2Wins = newP2Wins
-                ),
+            soundManager.playSound(SoundEffect.POINT_SCORED)
+            _uiState.value = state.copy(
+                matchStats = updatedStats,
                 roundStatus = RoundStatus.POINT_SCORED,
                 winningLine = winningLine,
                 isAiThinking = false
@@ -574,43 +798,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             viewModelScope.launch {
                 delay(1600)
-                val state = _uiState.value
-                if (state.roundStatus == RoundStatus.POINT_SCORED) {
-                    val nextRoundNumber = state.matchStats.currentRound + 1
-                    val nextStartingPlayer = if (nextRoundNumber % 2 == 1) PlayerSymbol.X else PlayerSymbol.O
-
-                    _uiState.value = state.copy(
+                val curState = _uiState.value
+                if (curState.roundStatus == RoundStatus.POINT_SCORED) {
+                    _uiState.value = curState.copy(
                         player1Pieces = emptyList(),
                         player2Pieces = emptyList(),
-                        currentTurn = nextStartingPlayer,
+                        player3Pieces = emptyList(),
+                        player4Pieces = emptyList(),
+                        currentTurn = PlayerSymbol.X,
                         roundStatus = RoundStatus.PLAYING,
-                        winningLine = null,
-                        matchStats = state.matchStats.copy(currentRound = nextRoundNumber),
-                        isAiThinking = (nextStartingPlayer == PlayerSymbol.O && state.gameMode == GameMode.SINGLE_PLAYER)
+                        winningLine = null
                     )
-
-                    if (nextStartingPlayer == PlayerSymbol.O && state.gameMode == GameMode.SINGLE_PLAYER) {
-                        triggerAiMove(emptyList(), emptyList())
-                    }
                 }
             }
         }
     }
 
-    private fun saveGameRecord(p1Score: Int, p2Score: Int, winner: PlayerSymbol) {
+    private fun saveGameRecord(stats: MatchStats, winner: PlayerSymbol) {
         viewModelScope.launch {
             val state = _uiState.value
-            val winnerName = if (winner == PlayerSymbol.X) {
-                state.player1Name
-            } else {
-                state.player2Name
+            val winnerName = when (winner) {
+                PlayerSymbol.X -> state.player1Name
+                PlayerSymbol.O -> state.player2Name
+                PlayerSymbol.TICK -> state.player3Name
+                PlayerSymbol.TRIANGLE -> state.player4Name
             }
-
             val record = GameRecord(
                 gameMode = state.gameMode.name,
                 difficulty = if (state.gameMode == GameMode.SINGLE_PLAYER) state.aiDifficulty.name else null,
-                player1Score = p1Score,
-                player2Score = p2Score,
+                player1Score = stats.player1Wins,
+                player2Score = stats.player2Wins,
                 targetSets = state.targetSets.count,
                 winner = winnerName
             )
@@ -631,6 +848,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = state.copy(
             player1Pieces = emptyList(),
             player2Pieces = emptyList(),
+            player3Pieces = emptyList(),
+            player4Pieces = emptyList(),
             currentTurn = PlayerSymbol.X,
             roundStatus = RoundStatus.PLAYING,
             winningLine = null,
@@ -645,11 +864,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = state.copy(
                 player1Pieces = emptyList(),
                 player2Pieces = emptyList(),
+                player3Pieces = emptyList(),
+                player4Pieces = emptyList(),
                 currentTurn = PlayerSymbol.X,
                 activeReactions = emptyList(),
                 matchStats = MatchStats(
                     player1Wins = 0,
                     player2Wins = 0,
+                    player3Wins = 0,
+                    player4Wins = 0,
                     currentRound = 1,
                     targetSets = state.targetSets.count
                 ),
@@ -659,7 +882,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 showVictoryDialog = false
             )
         } else {
-            startMatch(state.gameMode, state.aiDifficulty, state.targetSets)
+            startMatch(state.gameMode, state.playerCount, state.aiDifficulty, state.targetSets)
         }
     }
 

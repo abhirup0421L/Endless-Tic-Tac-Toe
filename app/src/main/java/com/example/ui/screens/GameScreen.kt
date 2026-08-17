@@ -1,10 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +51,7 @@ import com.example.domain.model.GameMode
 import com.example.domain.model.LocalPlayerRole
 import com.example.domain.model.MatchStats
 import com.example.domain.model.NetworkConnectionStatus
+import com.example.domain.model.PlayerCount
 import com.example.domain.model.PlayerSymbol
 import com.example.domain.model.WinningLine
 import com.example.ui.components.EndlessGrid
@@ -67,6 +63,8 @@ import com.example.ui.theme.CellDarkBorder
 import com.example.ui.theme.GameYellowBackground
 import com.example.ui.theme.GameYellowVibrant
 import com.example.ui.theme.PlayerORed
+import com.example.ui.theme.PlayerTickGreen
+import com.example.ui.theme.PlayerTrianglePurple
 import com.example.ui.theme.PlayerXBlue
 import com.example.ui.theme.TextDark
 import com.example.ui.theme.TextLightSecondary
@@ -76,8 +74,13 @@ import com.example.ui.viewmodel.RoundStatus
 fun GameScreen(
     player1Name: String,
     player2Name: String,
+    player3Name: String = "Player 3",
+    player4Name: String = "Player 4",
+    playerCount: PlayerCount = PlayerCount.TWO,
     player1Pieces: List<BoardPosition>,
     player2Pieces: List<BoardPosition>,
+    player3Pieces: List<BoardPosition> = emptyList(),
+    player4Pieces: List<BoardPosition> = emptyList(),
     currentTurn: PlayerSymbol,
     matchStats: MatchStats,
     roundStatus: RoundStatus,
@@ -102,22 +105,41 @@ fun GameScreen(
     onCloseOpponentLeftDialog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val playerNamesMap = mapOf(
+        PlayerSymbol.X to player1Name,
+        PlayerSymbol.O to player2Name,
+        PlayerSymbol.TICK to player3Name,
+        PlayerSymbol.TRIANGLE to player4Name
+    )
+
+    val piecesMap = mutableMapOf<PlayerSymbol, List<BoardPosition>>().apply {
+        put(PlayerSymbol.X, player1Pieces)
+        put(PlayerSymbol.O, player2Pieces)
+        if (playerCount.count >= 3) put(PlayerSymbol.TICK, player3Pieces)
+        if (playerCount.count >= 4) put(PlayerSymbol.TRIANGLE, player4Pieces)
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(GameYellowBackground)
+            .background(GameYellowBackground),
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .widthIn(max = 680.dp)
                 .padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 1. Score Calculator at the top of the screen (with reactions right under player names)
+            // 1. Score Calculator at the top of the screen (supports 2, 3, 4 players)
             ScoreCalculator(
                 player1Name = player1Name,
                 player2Name = player2Name,
+                player3Name = player3Name,
+                player4Name = player4Name,
+                playerCount = playerCount,
                 matchStats = matchStats,
                 currentTurn = currentTurn,
                 gameMode = gameMode,
@@ -129,7 +151,7 @@ fun GameScreen(
                 modifier = Modifier.testTag("score_calculator")
             )
 
-            // 2. 3x3 Black Grid at Center (Completely unobstructed gameplay)
+            // 2. Dynamic Grid at Center (3x3, 4x4, or 5x5)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -137,8 +159,8 @@ fun GameScreen(
                 contentAlignment = Alignment.Center
             ) {
                 EndlessGrid(
-                    player1Pieces = player1Pieces,
-                    player2Pieces = player2Pieces,
+                    playerPiecesMap = piecesMap,
+                    gridSize = playerCount.gridSize,
                     currentTurn = currentTurn,
                     winningLine = winningLine,
                     onCellClick = onCellClick
@@ -146,7 +168,10 @@ fun GameScreen(
 
                 // Point celebration popup overlay
                 if (roundStatus == RoundStatus.POINT_SCORED && winningLine != null) {
-                    PointScoredBanner(winner = winningLine.winner, player1Name = player1Name, player2Name = player2Name)
+                    PointScoredBanner(
+                        winner = winningLine.winner,
+                        winnerName = playerNamesMap[winningLine.winner] ?: "Player"
+                    )
                 }
             }
 
@@ -232,7 +257,7 @@ fun GameScreen(
 
                 // Rule helper tip
                 Text(
-                    text = "ENDLESS RULE: MAX 3 PIECES • OLDEST VANISHES ON 4TH MOVE",
+                    text = "ENDLESS RULE: 3-IN-A-ROW • MAX 3 PIECES PER PLAYER • OLDEST VANISHES",
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark.copy(alpha = 0.55f),
@@ -256,11 +281,9 @@ fun GameScreen(
         if (showVictoryDialog && matchWinner != null) {
             VictoryDialog(
                 winner = matchWinner,
-                player1Name = player1Name,
-                player2Name = player2Name,
-                finalP1Score = matchStats.player1Wins,
-                finalP2Score = matchStats.player2Wins,
-                targetSets = matchStats.targetSets,
+                playerNamesMap = playerNamesMap,
+                matchStats = matchStats,
+                playerCount = playerCount,
                 onRestartMatch = onRestartMatchClick,
                 onExitToHome = onExitToHomeClick
             )
@@ -288,7 +311,7 @@ fun GameScreen(
                 },
                 text = {
                     Text(
-                        text = "The other player left the online match or lost connection.",
+                        text = "A player left the online match or lost connection.",
                         color = TextLightSecondary,
                         fontSize = 14.sp
                     )
@@ -315,16 +338,18 @@ fun GameScreen(
 @Composable
 fun PointScoredBanner(
     winner: PlayerSymbol,
-    player1Name: String,
-    player2Name: String
+    winnerName: String
 ) {
-    val isP1 = winner == PlayerSymbol.X
-    val color = if (isP1) PlayerXBlue else PlayerORed
-    val winnerName = if (isP1) player1Name else player2Name
+    val color = when (winner) {
+        PlayerSymbol.X -> PlayerXBlue
+        PlayerSymbol.O -> PlayerORed
+        PlayerSymbol.TICK -> PlayerTickGreen
+        PlayerSymbol.TRIANGLE -> PlayerTrianglePurple
+    }
 
     Box(
         modifier = Modifier
-            .fillMaxWidth(0.85f)
+            .fillMaxWidth(0.88f)
             .shadow(12.dp, RoundedCornerShape(20.dp))
             .clip(RoundedCornerShape(20.dp))
             .background(Color(0xFF0F0F11))
@@ -345,17 +370,17 @@ fun PointScoredBanner(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (isP1) "X" else "O",
+                        text = winner.displayName,
                         color = Color.White,
                         fontWeight = FontWeight.Black,
-                        fontSize = 18.sp
+                        fontSize = 16.sp
                     )
                 }
                 Text(
                     text = "$winnerName SCORES +1 POINT!",
                     color = Color.White,
                     fontWeight = FontWeight.Black,
-                    fontSize = 15.sp,
+                    fontSize = 14.5.sp,
                     letterSpacing = 0.5.sp
                 )
             }
@@ -497,17 +522,20 @@ fun PauseMenuDialog(
 @Composable
 fun VictoryDialog(
     winner: PlayerSymbol,
-    player1Name: String,
-    player2Name: String,
-    finalP1Score: Int,
-    finalP2Score: Int,
-    targetSets: Int,
+    playerNamesMap: Map<PlayerSymbol, String>,
+    matchStats: MatchStats,
+    playerCount: PlayerCount,
     onRestartMatch: () -> Unit,
     onExitToHome: () -> Unit
 ) {
-    val isP1 = winner == PlayerSymbol.X
-    val winnerColor = if (isP1) PlayerXBlue else PlayerORed
-    val winnerName = if (isP1) player1Name else player2Name
+    val winnerColor = when (winner) {
+        PlayerSymbol.X -> PlayerXBlue
+        PlayerSymbol.O -> PlayerORed
+        PlayerSymbol.TICK -> PlayerTickGreen
+        PlayerSymbol.TRIANGLE -> PlayerTrianglePurple
+    }
+    val winnerName = playerNamesMap[winner] ?: "Player"
+    val targetSets = matchStats.targetSets
 
     Dialog(onDismissRequest = {}) {
         Surface(
@@ -546,10 +574,11 @@ fun VictoryDialog(
                 )
 
                 Text(
-                    text = "$winnerName WINS THE SET!",
+                    text = "$winnerName (${winner.displayName}) WINS THE MATCH!",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center
                 )
 
                 // Scoreboard Summary
@@ -558,45 +587,35 @@ fun VictoryDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(CellDarkBg)
-                        .padding(16.dp),
+                        .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = player1Name,
-                            color = PlayerXBlue,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "$finalP1Score",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 32.sp
-                        )
-                    }
+                    playerCount.symbols.forEach { symbol ->
+                        val name = playerNamesMap[symbol] ?: "Player"
+                        val score = matchStats.getWins(symbol)
+                        val color = when (symbol) {
+                            PlayerSymbol.X -> PlayerXBlue
+                            PlayerSymbol.O -> PlayerORed
+                            PlayerSymbol.TICK -> PlayerTickGreen
+                            PlayerSymbol.TRIANGLE -> PlayerTrianglePurple
+                        }
 
-                    Text(
-                        text = "vs (Target $targetSets)",
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = player2Name,
-                            color = PlayerORed,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "$finalP2Score",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 32.sp
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = name,
+                                color = color,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "$score",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 26.sp
+                            )
+                        }
                     }
                 }
 

@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.domain.model.AiDifficulty
 import com.example.domain.model.GameMode
+import com.example.domain.model.PlayerCount
 import com.example.domain.model.TargetSets
 import com.example.ui.theme.BoardCardBg
 import com.example.ui.theme.BoardDark
@@ -57,8 +58,9 @@ import com.example.ui.theme.TextLightSecondary
 fun ModeSelectDialog(
     gameMode: GameMode,
     onDismiss: () -> Unit,
-    onStartGame: (difficulty: AiDifficulty, targetSets: TargetSets) -> Unit
+    onStartGame: (playerCount: PlayerCount, difficulty: AiDifficulty, targetSets: TargetSets) -> Unit
 ) {
+    var selectedPlayerCount by remember { mutableStateOf(PlayerCount.TWO) }
     var selectedDifficulty by remember { mutableStateOf(AiDifficulty.MEDIUM) }
     var selectedSets by remember { mutableStateOf(TargetSets.FIVE) }
 
@@ -103,7 +105,7 @@ fun ModeSelectDialog(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (isSinglePlayer) "SINGLE PLAYER (AI)" else "PLAY WITH FRIEND",
+                            text = if (isSinglePlayer) "SINGLE PLAYER (AI)" else "PASS & PLAY (LOCAL)",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.5.sp,
@@ -125,9 +127,64 @@ fun ModeSelectDialog(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 1. Player Count Selection (2, 3, 4 Players)
+                Text(
+                    text = "SELECT NUMBER OF PLAYERS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = GameYellowVibrant,
+                    letterSpacing = 1.5.sp,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PlayerCount.entries.forEach { count ->
+                        val isSelected = selectedPlayerCount == count
+                        val gridLabel = "${count.gridSize}×${count.gridSize}"
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) GameYellowVibrant else CellDarkBg)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) GameYellowVibrant else CellDarkBorder,
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                .clickable { selectedPlayerCount = count }
+                                .padding(vertical = 10.dp, horizontal = 4.dp)
+                                .testTag("player_count_${count.count}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${count.count} PLAYERS",
+                                    color = if (isSelected) Color.Black else Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 11.5.sp,
+                                    letterSpacing = 0.5.sp
+                                )
+                                Text(
+                                    text = "($gridLabel grid)",
+                                    color = if (isSelected) Color.Black.copy(alpha = 0.75f) else TextLightSecondary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // If Single Player: AI Difficulty Selection
                 if (isSinglePlayer) {
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
                         text = "SELECT AI DIFFICULTY",
@@ -138,7 +195,7 @@ fun ModeSelectDialog(
                         modifier = Modifier.align(Alignment.Start)
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -157,7 +214,7 @@ fun ModeSelectDialog(
                                         shape = RoundedCornerShape(14.dp)
                                     )
                                     .clickable { selectedDifficulty = diff }
-                                    .padding(vertical = 12.dp, horizontal = 6.dp)
+                                    .padding(vertical = 10.dp, horizontal = 6.dp)
                                     .testTag("difficulty_${diff.name.lowercase()}"),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -173,7 +230,7 @@ fun ModeSelectDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Sets Selection (5, 10, 15)
                 Text(
@@ -185,7 +242,7 @@ fun ModeSelectDialog(
                     modifier = Modifier.align(Alignment.Start)
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -210,7 +267,7 @@ fun ModeSelectDialog(
                                     shape = RoundedCornerShape(14.dp)
                                 )
                                 .clickable { selectedSets = target }
-                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
                                 .testTag("sets_${target.count}"),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -219,7 +276,7 @@ fun ModeSelectDialog(
                                 Text(
                                     text = target.label,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.5.sp,
                                     color = if (isSelected) GameYellowVibrant else Color.White
                                 )
                                 Text(
@@ -254,12 +311,12 @@ fun ModeSelectDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Start Game Button
                 Button(
                     onClick = {
-                        onStartGame(selectedDifficulty, selectedSets)
+                        onStartGame(selectedPlayerCount, selectedDifficulty, selectedSets)
                     },
                     modifier = Modifier
                         .fillMaxWidth()

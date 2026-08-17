@@ -25,6 +25,7 @@ class GreetingScreenshotTest {
     composeTestRule.setContent {
       EndlessTTTTheme {
         HomeScreen(
+          playerName = "Alex",
           onSelectMode = {},
           onOpenSettings = {}
         )

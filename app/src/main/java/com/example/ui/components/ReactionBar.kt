@@ -53,8 +53,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.model.ActiveReaction
+import com.example.domain.model.PlayerSymbol
 import com.example.ui.theme.GameYellowVibrant
 import com.example.ui.theme.PlayerORed
+import com.example.ui.theme.PlayerTickGreen
+import com.example.ui.theme.PlayerTrianglePurple
 import com.example.ui.theme.PlayerXBlue
 import kotlinx.coroutines.delay
 
@@ -71,7 +74,7 @@ val POPULAR_REACTION_EMOJIS = listOf(
 @Composable
 fun PlayerReactionBadge(
     reaction: ActiveReaction?,
-    isPlayerX: Boolean,
+    playerSymbol: PlayerSymbol,
     modifier: Modifier = Modifier
 ) {
     if (reaction == null) {
@@ -81,7 +84,12 @@ fun PlayerReactionBadge(
 
     val scale = remember(reaction.id) { Animatable(0.4f) }
     val alpha = remember(reaction.id) { Animatable(1f) }
-    val borderColor = if (isPlayerX) PlayerXBlue else PlayerORed
+    val borderColor = when (playerSymbol) {
+        PlayerSymbol.X -> PlayerXBlue
+        PlayerSymbol.O -> PlayerORed
+        PlayerSymbol.TICK -> com.example.ui.theme.PlayerTickGreen
+        PlayerSymbol.TRIANGLE -> com.example.ui.theme.PlayerTrianglePurple
+    }
 
     LaunchedEffect(reaction.id) {
         // Pop-in bounce

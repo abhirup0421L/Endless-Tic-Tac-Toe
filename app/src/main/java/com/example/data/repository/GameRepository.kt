@@ -15,6 +15,9 @@ class GameRepository(
 ) {
     private val prefs: SharedPreferences? = context?.getSharedPreferences("endless_ttt_prefs", Context.MODE_PRIVATE)
 
+    private val _isFirstLaunch = MutableStateFlow(prefs?.getBoolean("is_first_launch_done", false) != true)
+    val isFirstLaunch: StateFlow<Boolean> = _isFirstLaunch.asStateFlow()
+
     private val _playerName = MutableStateFlow(prefs?.getString("player_name", "Player 1") ?: "Player 1")
     val playerName: StateFlow<String> = _playerName.asStateFlow()
 
@@ -25,6 +28,16 @@ class GameRepository(
     val friendRecords: Flow<List<GameRecord>> = gameDao.getRecordsByMode("FRIEND")
     val onlineRecords: Flow<List<GameRecord>> = gameDao.getRecordsByMode("ONLINE_MULTIPLAYER")
     val allRecords: Flow<List<GameRecord>> = gameDao.getAllRecords()
+
+    fun completeOnboarding(name: String) {
+        val trimmed = name.trim().ifEmpty { "Player 1" }
+        _playerName.value = trimmed
+        _isFirstLaunch.value = false
+        prefs?.edit()
+            ?.putString("player_name", trimmed)
+            ?.putBoolean("is_first_launch_done", true)
+            ?.apply()
+    }
 
     fun setPlayerName(name: String) {
         val trimmed = name.trim().ifEmpty { "Player 1" }

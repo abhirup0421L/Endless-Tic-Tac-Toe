@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,12 +22,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,7 +52,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -65,11 +64,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.domain.model.NetworkConnectionStatus
+import com.example.domain.model.PendingJoinUser
+import com.example.domain.model.PlayerCount
 import com.example.domain.model.TargetSets
 import com.example.ui.theme.BoardDark
 import com.example.ui.theme.CellDarkBg
 import com.example.ui.theme.GameYellowVibrant
 import com.example.ui.theme.PlayerORed
+import com.example.ui.theme.PlayerTickGreen
 import com.example.ui.theme.PlayerXBlue
 import com.example.ui.theme.TextDark
 import com.example.ui.theme.TextLightSecondary
@@ -78,23 +80,32 @@ import com.example.ui.theme.TextLightSecondary
 fun OnlineLobbyDialog(
     initialRoomCode: String,
     playerName: String,
+    isOnlineHost: Boolean = false,
     networkStatus: NetworkConnectionStatus,
     errorMessage: String?,
-    onCreateRoom: (roomCode: String, targetSets: TargetSets) -> Unit,
+    roomPlayerCount: PlayerCount = PlayerCount.TWO,
+    pendingJoinRequests: List<PendingJoinUser> = emptyList(),
+    connectedPlayers: List<String> = emptyList(),
+    onAcceptPlayerRequest: (id: String, name: String) -> Unit = { _, _ -> },
+    onRejectPlayerRequest: (id: String) -> Unit = {},
+    onStartMatchNow: () -> Unit = {},
+    onCreateRoom: (roomCode: String, playerCount: PlayerCount, targetSets: TargetSets) -> Unit,
     onJoinRoom: (roomCode: String) -> Unit,
     onCancelConnecting: () -> Unit,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Create Room, 1 = Join Room
+    var selectedTab by remember { mutableIntStateOf(if (isOnlineHost) 0 else 0) } // 0 = Create Room, 1 = Join Room
     var joinCodeInput by remember { mutableStateOf("") }
+    var selectedPlayerCount by remember { mutableStateOf(PlayerCount.TWO) }
     var selectedTargetSets by remember { mutableStateOf(TargetSets.FIVE) }
 
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val isConnecting = networkStatus == NetworkConnectionStatus.CONNECTING ||
-            networkStatus == NetworkConnectionStatus.WAITING_FOR_OPPONENT
+            networkStatus == NetworkConnectionStatus.WAITING_FOR_OPPONENT ||
+            networkStatus == NetworkConnectionStatus.CONNECTED
 
     Dialog(onDismissRequest = {
         if (!isConnecting) onDismiss()
@@ -139,13 +150,13 @@ fun OnlineLobbyDialog(
                         Column {
                             Text(
                                 text = "ONLINE MULTIPLAYER",
-                                fontSize = 15.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.5.sp,
                                 color = Color.White
                             )
                             Text(
-                                text = "Playing as: $playerName",
+                                text = "Playing as $playerName",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = GameYellowVibrant
@@ -172,10 +183,21 @@ fun OnlineLobbyDialog(
 
                 // If connecting / waiting
                 if (isConnecting) {
+                    val activeRoomCode = if (isOnlineHost) {
+                        initialRoomCode
+                    } else {
+                        joinCodeInput.uppercase().trim().ifBlank { initialRoomCode }
+                    }
                     ConnectingStateView(
-                        isHost = selectedTab == 0,
-                        roomCode = if (selectedTab == 0) initialRoomCode else joinCodeInput.uppercase().trim(),
+                        isHost = isOnlineHost,
+                        roomCode = activeRoomCode,
                         status = networkStatus,
+                        playerCount = roomPlayerCount,
+                        pendingRequests = pendingJoinRequests,
+                        connectedPlayers = connectedPlayers,
+                        onAcceptPlayer = onAcceptPlayerRequest,
+                        onRejectPlayer = onRejectPlayerRequest,
+                        onStartMatchNow = onStartMatchNow,
                         onCancel = onCancelConnecting
                     )
                 } else {
@@ -200,10 +222,10 @@ fun OnlineLobbyDialog(
                             onClick = { selectedTab = 0 },
                             text = {
                                 Text(
-                                    "HOST ROOM",
-                                    fontWeight = if (selectedTab == 0) FontWeight.Black else FontWeight.Bold,
+                                    text = "CREATE ROOM",
+                                    fontWeight = FontWeight.Black,
                                     fontSize = 12.sp,
-                                    letterSpacing = 1.sp,
+                                    letterSpacing = 0.5.sp,
                                     color = if (selectedTab == 0) GameYellowVibrant else TextLightSecondary
                                 )
                             }
@@ -213,32 +235,34 @@ fun OnlineLobbyDialog(
                             onClick = { selectedTab = 1 },
                             text = {
                                 Text(
-                                    "JOIN WITH CODE",
-                                    fontWeight = if (selectedTab == 1) FontWeight.Black else FontWeight.Bold,
+                                    text = "JOIN ROOM",
+                                    fontWeight = FontWeight.Black,
                                     fontSize = 12.sp,
-                                    letterSpacing = 1.sp,
+                                    letterSpacing = 0.5.sp,
                                     color = if (selectedTab == 1) GameYellowVibrant else TextLightSecondary
                                 )
                             }
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     if (selectedTab == 0) {
                         // CREATE ROOM TAB
                         CreateRoomTabContent(
                             roomCode = initialRoomCode,
+                            selectedPlayerCount = selectedPlayerCount,
+                            onPlayerCountChange = { selectedPlayerCount = it },
                             selectedTargetSets = selectedTargetSets,
                             onTargetSetsChange = { selectedTargetSets = it },
                             onCopyCode = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Room Code", initialRoomCode)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Room Code $initialRoomCode copied!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Room code copied to clipboard!", Toast.LENGTH_SHORT).show()
                             },
                             onCreateClick = {
-                                onCreateRoom(initialRoomCode, selectedTargetSets)
+                                onCreateRoom(initialRoomCode, selectedPlayerCount, selectedTargetSets)
                             }
                         )
                     } else {
@@ -272,6 +296,8 @@ fun OnlineLobbyDialog(
 @Composable
 private fun CreateRoomTabContent(
     roomCode: String,
+    selectedPlayerCount: PlayerCount,
+    onPlayerCountChange: (PlayerCount) -> Unit,
     selectedTargetSets: TargetSets,
     onTargetSetsChange: (TargetSets) -> Unit,
     onCopyCode: () -> Unit,
@@ -335,11 +361,73 @@ private fun CreateRoomTabContent(
             Spacer(modifier = Modifier.height(2.dp))
 
             Text(
-                text = "Share this code with your friend on any device/network",
+                text = "Share this code with players on any device/network",
                 fontSize = 10.sp,
                 color = TextLightSecondary,
                 textAlign = TextAlign.Center
             )
+        }
+
+        // Player Count Selection
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "NUMBER OF PLAYERS",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                color = GameYellowVibrant,
+                letterSpacing = 1.5.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PlayerCount.entries.forEach { count ->
+                    val isSelected = selectedPlayerCount == count
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSelected) GameYellowVibrant else CellDarkBg)
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) GameYellowVibrant else Color(0xFF3F3F46),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { onPlayerCountChange(count) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${count.count} PLAYERS",
+                                color = if (isSelected) Color.Black else Color(0xFFD4D4D8),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp
+                            )
+                            Text(
+                                text = "(${count.gridSize}×${count.gridSize})",
+                                color = if (isSelected) Color.Black.copy(alpha = 0.7f) else TextLightSecondary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (selectedPlayerCount.count > 2) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "★ Host can review and accept join requests before match starts",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GameYellowVibrant.copy(alpha = 0.85f)
+                )
+            }
         }
 
         // Match Sets Selection
@@ -497,6 +585,12 @@ private fun ConnectingStateView(
     isHost: Boolean,
     roomCode: String,
     status: NetworkConnectionStatus,
+    playerCount: PlayerCount = PlayerCount.TWO,
+    pendingRequests: List<PendingJoinUser> = emptyList(),
+    connectedPlayers: List<String> = emptyList(),
+    onAcceptPlayer: (id: String, name: String) -> Unit = { _, _ -> },
+    onRejectPlayer: (id: String) -> Unit = {},
+    onStartMatchNow: () -> Unit = {},
     onCancel: () -> Unit
 ) {
     Column(
@@ -504,18 +598,18 @@ private fun ConnectingStateView(
             .fillMaxWidth()
             .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         CircularProgressIndicator(
             color = GameYellowVibrant,
             strokeWidth = 3.5.dp,
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(44.dp)
         )
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = if (isHost) "WAITING FOR OPPONENT" else "CONNECTING TO ROOM...",
-                fontSize = 15.sp,
+                text = if (isHost) "LOBBY: WAITING FOR PLAYERS" else "CONNECTING TO ROOM...",
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Black,
                 color = Color.White,
                 letterSpacing = 1.sp
@@ -531,18 +625,152 @@ private fun ConnectingStateView(
                 letterSpacing = 2.sp
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = if (isHost)
-                    "Ask your opponent to open the app, tap Online Multiplayer, and enter this code."
+                    "Mode: ${playerCount.count} Players (${playerCount.gridSize}×${playerCount.gridSize} grid)"
                 else
-                    "Contacting host across relay channel...",
+                    "Waiting for host to admit and launch match...",
                 fontSize = 11.sp,
                 color = TextLightSecondary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 12.dp)
+                textAlign = TextAlign.Center
             )
+        }
+
+        // Joined Players Section
+        if (connectedPlayers.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CellDarkBg)
+                    .border(1.dp, Color(0xFF3F3F46), RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "PLAYERS IN ROOM (${connectedPlayers.size}/${playerCount.count})",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    color = GameYellowVibrant,
+                    letterSpacing = 1.sp
+                )
+
+                connectedPlayers.forEach { pName ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF27272A))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = GameYellowVibrant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = pName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Host Player Join Requests section (for 3 or 4 players mode)
+        if (isHost && playerCount.count > 2) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(CellDarkBg)
+                    .border(1.dp, Color(0xFF3F3F46), RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "JOINING REQUESTS (${pendingRequests.size})",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    color = GameYellowVibrant,
+                    letterSpacing = 1.sp
+                )
+
+                if (pendingRequests.isEmpty()) {
+                    Text(
+                        text = "Waiting for players to enter room code...",
+                        fontSize = 11.sp,
+                        color = TextLightSecondary
+                    )
+                } else {
+                    pendingRequests.forEach { user ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF27272A))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = user.name,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                IconButton(
+                                    onClick = { onAcceptPlayer(user.id, user.name) },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(PlayerTickGreen)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Accept",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { onRejectPlayer(user.id) },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(PlayerORed)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Reject",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Button(

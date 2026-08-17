@@ -1,6 +1,6 @@
 {
   "name": "Endless TTT",
-  "description": "Endless Tic Tac Toe game with unique 3-piece vanishing mechanics, sets championship, smart AI, local pass & play, cross-network multi-device multiplayer, and player name customization.",
+  "description": "Endless Tic Tac Toe major update with 2, 3, and 4 player support (X, O, Tick, Triangle), dynamic expanding boards (3x3, 4x4, 5x5), host approval joining requests for multiplayer, tablet optimization, and 3-piece FIFO mechanics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

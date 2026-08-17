@@ -52,7 +52,8 @@ class ExampleRobolectricTest {
     val bestMove = EndlessAiEngine.getBestMove(
       difficulty = AiDifficulty.HARD,
       aiPieces = aiPieces,
-      humanPieces = humanPieces
+      otherPlayersPieces = listOf(humanPieces),
+      gridSize = 3
     )
 
     assertEquals(BoardPosition(0, 2), bestMove)

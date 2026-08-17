@@ -201,7 +201,7 @@ fun HomeScreen(
                 // Mode 1: Online Multiplayer (Cross-network)
                 ModeButton(
                     title = "ONLINE MULTIPLAYER",
-                    subtitle = "Separate Device & Cross-Network Play",
+                    subtitle = "2, 3, or 4 Players • Room Codes & Host Acceptance",
                     icon = Icons.Default.Language,
                     accentColor = GameYellowVibrant,
                     testTag = "btn_online_multiplayer",
@@ -214,7 +214,7 @@ fun HomeScreen(
                 // Mode 2: Single Player (AI)
                 ModeButton(
                     title = "SINGLE PLAYER (AI)",
-                    subtitle = "Easy, Medium & Hard AI Opponents",
+                    subtitle = "2, 3, or 4 Players • Smart AI Opponents",
                     icon = Icons.Default.SmartToy,
                     accentColor = PlayerXBlue,
                     testTag = "btn_single_player",
@@ -226,7 +226,7 @@ fun HomeScreen(
                 // Mode 3: Play with Friend (Pass & Play)
                 ModeButton(
                     title = "PASS & PLAY (LOCAL)",
-                    subtitle = "2 Players on the same screen",
+                    subtitle = "2, 3, or 4 Players on the same screen",
                     icon = Icons.Default.People,
                     accentColor = PlayerORed,
                     testTag = "btn_play_friend",

@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -42,6 +44,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
@@ -87,6 +91,8 @@ fun SettingsDialog(
     onSavePlayerName: (String) -> Unit,
     customRelayUrl: String,
     onSaveCustomRelayUrl: (String) -> Unit,
+    isSoundEnabled: Boolean = true,
+    onToggleSound: () -> Unit = {},
     singlePlayerRecords: List<GameRecord>,
     friendRecords: List<GameRecord>,
     onlineRecords: List<GameRecord>,
@@ -229,7 +235,9 @@ fun SettingsDialog(
                             currentName = playerName,
                             onSaveName = onSavePlayerName,
                             currentRelayUrl = customRelayUrl,
-                            onSaveRelayUrl = onSaveCustomRelayUrl
+                            onSaveRelayUrl = onSaveCustomRelayUrl,
+                            isSoundEnabled = isSoundEnabled,
+                            onToggleSound = onToggleSound
                         )
                         1 -> ScoresSection(
                             singlePlayerRecords = singlePlayerRecords,
@@ -352,7 +360,9 @@ private fun ProfileSettingsSection(
     currentName: String,
     onSaveName: (String) -> Unit,
     currentRelayUrl: String,
-    onSaveRelayUrl: (String) -> Unit
+    onSaveRelayUrl: (String) -> Unit,
+    isSoundEnabled: Boolean = true,
+    onToggleSound: () -> Unit = {}
 ) {
     var nameInput by remember { mutableStateOf(currentName) }
     var relayUrlInput by remember { mutableStateOf(currentRelayUrl) }
@@ -363,6 +373,72 @@ private fun ProfileSettingsSection(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxSize()
     ) {
+        // Sound & Audio Feedback Settings Card
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(CellDarkBg)
+                    .border(1.5.dp, Color(0xFF3F3F46), RoundedCornerShape(18.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (isSoundEnabled) GameYellowVibrant else Color(0xFF3F3F46)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isSoundEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                contentDescription = if (isSoundEnabled) "Sound Enabled" else "Sound Muted",
+                                tint = if (isSoundEnabled) TextDark else TextLightSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "SOUND EFFECTS",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = if (isSoundEnabled) "Audio cues active (placement, vanishing & victory)" else "Audio muted",
+                                fontSize = 10.sp,
+                                color = TextLightSecondary
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isSoundEnabled,
+                        onCheckedChange = { onToggleSound() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = TextDark,
+                            checkedTrackColor = GameYellowVibrant,
+                            uncheckedThumbColor = TextLightSecondary,
+                            uncheckedTrackColor = Color(0xFF27272A)
+                        ),
+                        modifier = Modifier.testTag("sound_effects_toggle_switch")
+                    )
+                }
+            }
+        }
+
         // Player Profile Card
         item {
             Column(
@@ -1044,7 +1120,7 @@ private fun AboutSection(onShareClick: () -> Unit) {
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Designed and developed Endless Tic Tac Toe with 3-piece vanishing strategy, Smart AI, local multiplayer, and Cross-Network Online Multiplayer.",
+                        text = "Designed and developed Endless Tic Tac Toe with 3-piece vanishing strategy, 2/3/4 player modes (3x3, 4x4, 5x5 grids), Smart AI, and Cross-Network Online Multiplayer.",
                         fontSize = 11.sp,
                         color = TextLightSecondary,
                         lineHeight = 15.sp
@@ -1081,7 +1157,7 @@ private fun AboutSection(onShareClick: () -> Unit) {
                         )
                     }
                     Text(
-                        text = "v1.2.0 (Live Reactions & Failover)",
+                        text = "v2.0.0 (2, 3 & 4 Players + Dynamic Grids)",
                         fontSize = 11.sp,
                         color = GameYellowVibrant,
                         fontWeight = FontWeight.Bold

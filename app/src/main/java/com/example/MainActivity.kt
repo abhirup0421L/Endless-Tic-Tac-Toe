@@ -13,7 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.domain.model.GameMode
+import com.example.domain.model.PlayerCount
 import com.example.ui.screens.GameScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.ModeSelectDialog
@@ -58,6 +58,18 @@ fun EndlessTTTApp(
             SplashScreen(progress = uiState.splashProgress)
         }
 
+        AppScreen.ONBOARDING -> {
+            HomeScreen(
+                playerName = uiState.customPlayerName,
+                onSelectMode = { mode ->
+                    viewModel.openModeSelect(mode)
+                },
+                onOpenSettings = {
+                    viewModel.openSettings()
+                }
+            )
+        }
+
         AppScreen.HOME -> {
             HomeScreen(
                 playerName = uiState.customPlayerName,
@@ -74,8 +86,13 @@ fun EndlessTTTApp(
             GameScreen(
                 player1Name = uiState.player1Name,
                 player2Name = uiState.player2Name,
+                player3Name = uiState.player3Name,
+                player4Name = uiState.player4Name,
+                playerCount = uiState.playerCount,
                 player1Pieces = uiState.player1Pieces,
                 player2Pieces = uiState.player2Pieces,
+                player3Pieces = uiState.player3Pieces,
+                player4Pieces = uiState.player4Pieces,
                 currentTurn = uiState.currentTurn,
                 matchStats = uiState.matchStats,
                 roundStatus = uiState.roundStatus,
@@ -99,7 +116,7 @@ fun EndlessTTTApp(
                     viewModel.openPauseDialog()
                 },
                 onResumeClick = {
-                    viewModel.closePauseDialog()
+                    viewModel.dismissPauseDialog()
                 },
                 onRestartRoundClick = {
                     viewModel.restartCurrentRound()
@@ -114,7 +131,7 @@ fun EndlessTTTApp(
                     viewModel.openSettings()
                 },
                 onCloseOpponentLeftDialog = {
-                    viewModel.closeOpponentLeftDialog()
+                    viewModel.dismissOpponentLeftDialog()
                 }
             )
         }
@@ -124,10 +141,11 @@ fun EndlessTTTApp(
     if (uiState.showModeSelectDialog) {
         ModeSelectDialog(
             gameMode = uiState.selectedModeForDialog,
-            onDismiss = { viewModel.closeModeSelect() },
-            onStartGame = { difficulty, targetSets ->
+            onDismiss = { viewModel.dismissModeSelect() },
+            onStartGame = { playerCount, difficulty, targetSets ->
                 viewModel.startMatch(
                     mode = uiState.selectedModeForDialog,
+                    playerCount = playerCount,
                     difficulty = difficulty,
                     targetSets = targetSets
                 )
@@ -140,19 +158,32 @@ fun EndlessTTTApp(
         OnlineLobbyDialog(
             initialRoomCode = uiState.currentRoomCode,
             playerName = uiState.customPlayerName,
+            isOnlineHost = uiState.isOnlineHost,
             networkStatus = uiState.networkStatus,
             errorMessage = uiState.onlineErrorMessage,
-            onCreateRoom = { code, targetSets ->
-                viewModel.createOnlineRoom(code, targetSets)
+            roomPlayerCount = uiState.playerCount,
+            pendingJoinRequests = uiState.pendingJoinRequests,
+            connectedPlayers = uiState.connectedPlayers,
+            onAcceptPlayerRequest = { guestId, guestName ->
+                viewModel.acceptPlayerRequest(guestId, guestName)
+            },
+            onRejectPlayerRequest = { guestId ->
+                viewModel.rejectPlayerRequest(guestId)
+            },
+            onStartMatchNow = {
+                viewModel.hostStartMatchNow()
+            },
+            onCreateRoom = { code, playerCount, targetSets ->
+                viewModel.createOnlineRoom(code, playerCount, targetSets)
             },
             onJoinRoom = { roomCode ->
                 viewModel.joinOnlineRoom(roomCode)
             },
             onCancelConnecting = {
-                viewModel.cancelOnlineConnecting()
+                viewModel.cancelConnectingOnline()
             },
             onDismiss = {
-                viewModel.closeOnlineLobby()
+                viewModel.dismissOnlineLobby()
             },
             onOpenSettings = {
                 viewModel.openSettings()
@@ -171,6 +202,10 @@ fun EndlessTTTApp(
             onSaveCustomRelayUrl = { newUrl ->
                 viewModel.setCustomRelayUrl(newUrl)
             },
+            isSoundEnabled = uiState.isSoundEnabled,
+            onToggleSound = {
+                viewModel.setSoundEnabled(!uiState.isSoundEnabled)
+            },
             singlePlayerRecords = singlePlayerRecords,
             friendRecords = friendRecords,
             onlineRecords = onlineRecords,
@@ -184,7 +219,7 @@ fun EndlessTTTApp(
                 viewModel.resetOnlineScores()
             },
             onDismiss = {
-                viewModel.closeSettings()
+                viewModel.dismissSettings()
             }
         )
     }
