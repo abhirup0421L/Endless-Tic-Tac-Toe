@@ -1157,7 +1157,7 @@ private fun AboutSection(onShareClick: () -> Unit) {
                         )
                     }
                     Text(
-                        text = "v2.0.0 (2, 3 & 4 Players + Dynamic Grids)",
+                        text = "v2.0.1 (Vanishing mechanic fix)",
                         fontSize = 11.sp,
                         color = GameYellowVibrant,
                         fontWeight = FontWeight.Bold

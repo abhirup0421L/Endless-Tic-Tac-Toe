@@ -655,9 +655,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (state.isAiThinking) return
 
         val clickedPos = BoardPosition(row, col)
+        val turn = state.currentTurn
+        val currentPieces = state.getPiecesForSymbol(turn)
+        val isOldestPiece = currentPieces.size == 3 && currentPieces.first() == clickedPos
 
         val allOccupied = state.player1Pieces + state.player2Pieces + state.player3Pieces + state.player4Pieces
-        if (allOccupied.contains(clickedPos)) {
+        if (allOccupied.contains(clickedPos) && !isOldestPiece) {
             return
         }
 
@@ -673,8 +676,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (!isMyTurn) return
         }
 
-        val turn = state.currentTurn
-        val currentPieces = state.getPiecesForSymbol(turn)
         val willVanish = currentPieces.size == 3
         val updatedPieces = EndlessAiEngine.simulateMove(currentPieces, clickedPos)
         playPieceSound(turn, willVanish)
